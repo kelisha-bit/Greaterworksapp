@@ -48,6 +48,8 @@ export function Members() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [groupFilter, setGroupFilter] = useState<string>('All');
+  const [ministryFilter, setMinistryFilter] = useState<string>('All');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('All');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -584,7 +586,9 @@ export function Members() {
                           m.email?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'All' || m.status === statusFilter;
     const matchesGroup = groupFilter === 'All' || m.group_id === groupFilter;
-    return matchesSearch && matchesStatus && matchesGroup;
+    const matchesMinistry = ministryFilter === 'All' || m.ministry === ministryFilter;
+    const matchesDepartment = departmentFilter === 'All' || m.department_id === departmentFilter;
+    return matchesSearch && matchesStatus && matchesGroup && matchesMinistry && matchesDepartment;
   });
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -756,7 +760,7 @@ export function Members() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Filter size={20} className="text-neutral-400" />
           <select
             className="bg-neutral-50 border-none rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary-500"
@@ -776,6 +780,26 @@ export function Members() {
             <option value="All">All Groups</option>
             {memberGroups.map(group => (
               <option key={group.id} value={group.id}>{group.name}</option>
+            ))}
+          </select>
+          <select
+            className="bg-neutral-50 border-none rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary-500"
+            value={ministryFilter}
+            onChange={(e) => setMinistryFilter(e.target.value)}
+          >
+            <option value="All">All Ministries</option>
+            {ministryOptions.map(ministry => (
+              <option key={ministry} value={ministry}>{ministry}</option>
+            ))}
+          </select>
+          <select
+            className="bg-neutral-50 border-none rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary-500"
+            value={departmentFilter}
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+          >
+            <option value="All">All Departments</option>
+            {memberDepartments.map(dept => (
+              <option key={dept.id} value={dept.id}>{dept.name}</option>
             ))}
           </select>
         </div>
