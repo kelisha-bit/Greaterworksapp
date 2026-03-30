@@ -35,14 +35,14 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-neutral-50 flex flex-col md:flex-row">
       {/* Sidebar - Desktop */}
-      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-neutral-200 sticky top-0 h-screen">
-        <div className="p-6 flex items-center gap-3 border-b border-neutral-100">
-          <div className="bg-primary-600 p-2 rounded-lg text-white">
+      <aside className="hidden md:flex flex-col w-64 bg-green-800 border-r border-neutral-200 sticky top-0 h-screen">
+        <div className="p-6 flex items-center gap-3 border-b border-green-700">
+          <div className="bg-white p-2 rounded-lg text-green-800">
             <Church size={24} />
           </div>
           <div className="overflow-hidden">
-            <h1 className="font-bold text-neutral-900 truncate">Greater Works</h1>
-            <p className="text-xs text-neutral-500">City Church, Ghana</p>
+            <h1 className="font-bold text-white truncate">Greater Works</h1>
+            <p className="text-xs text-green-200">City Church, Ghana</p>
           </div>
         </div>
 
@@ -56,30 +56,30 @@ export function Layout() {
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
                   isActive 
-                    ? "bg-primary-50 text-primary-600 font-semibold shadow-sm" 
-                    : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                    ? "bg-green-700 text-white font-semibold shadow-sm" 
+                    : "text-green-100 hover:bg-green-700 hover:text-white"
                 )}
               >
-                <item.icon size={20} className={cn(isActive ? "text-primary-600" : "text-neutral-400 group-hover:text-neutral-600")} />
+                <item.icon size={20} className={cn(isActive ? "text-white" : "text-green-300 group-hover:text-white")} />
                 {item.name}
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-neutral-100">
+        <div className="p-4 border-t border-green-700">
           <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            <div className="w-10 h-10 rounded-full bg-neutral-200 flex items-center justify-center text-neutral-600 font-bold">
+            <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">
               {user?.display_name?.[0] || 'U'}
             </div>
             <div className="flex-1 overflow-hidden">
-              <p className="text-sm font-semibold text-neutral-900 truncate">{user?.display_name}</p>
-              <p className="text-xs text-neutral-500 capitalize">{user?.role}</p>
+              <p className="text-sm font-semibold text-white truncate">{user?.display_name}</p>
+              <p className="text-xs text-green-200 capitalize">{user?.role}</p>
             </div>
           </div>
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-3 text-white hover:bg-green-700 rounded-xl transition-colors"
           >
             <LogOut size={20} />
             <span className="text-sm font-medium">Logout</span>

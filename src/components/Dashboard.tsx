@@ -161,6 +161,7 @@ export function Dashboard() {
       <div>
         <h1 className="text-3xl font-bold text-neutral-900">Dashboard</h1>
         <p className="text-neutral-500">Welcome to Greater Works City Church Management System</p>
+        <p className="text-sm text-neutral-400 mt-1">{format(new Date(), 'EEEE, MMMM do, yyyy')}</p>
       </div>
 
       {/* Stats Grid */}
