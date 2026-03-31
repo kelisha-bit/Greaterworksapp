@@ -2,14 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { handleDatabaseError, useAuth } from '../App';
 import { OperationType, StaffMember, StaffPosition } from '../types';
-import { Search, Users, Plus, X, Upload } from 'lucide-react';
+import { Search, Users, Plus, X, Upload, Edit2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-
-type MemberNameOption = {
-  id: string;
-  first_name: string;
-  last_name: string;
-};
 
 export function Staff() {
   const { user } = useAuth();
@@ -18,8 +12,6 @@ export function Staff() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [members, setMembers] = useState<MemberNameOption[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
 
   const fetchStaff = async (mode: 'initial' | 'refresh' = 'initial') => {
     try {
@@ -38,23 +30,6 @@ export function Staff() {
     } finally {
       if (mode === 'initial') setLoading(false);
       if (mode === 'refresh') setRefreshing(false);
-    }
-  };
-
-  const fetchMembersForStaffModal = async () => {
-    try {
-      setMembersLoading(true);
-      const { data, error } = await supabase
-        .from('members')
-        .select('id, first_name, last_name')
-        .order('first_name', { ascending: true });
-
-      if (error) throw error;
-      setMembers((data ?? []) as MemberNameOption[]);
-    } catch (error) {
-      handleDatabaseError(error, OperationType.LIST, 'members');
-    } finally {
-      setMembersLoading(false);
     }
   };
 
@@ -79,22 +54,14 @@ export function Staff() {
     'Department head',
     'Church secretary',
     'Ministry leader',
-    'Church treasurer',
-    'Church usher leader',
-    'Church choir leader',
-    'Church prayer leader',
-    'Church evangelism leader',
-    'Church media leader',
-    'Church welfare leader',
-    'Church other leader',
   ];
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const canManageStaff = user?.role === 'admin';
 
   const [formData, setFormData] = useState({
-    memberId: '',
     full_name: '',
     position: 'Senior pastor' as StaffPosition,
     department: '',
@@ -112,7 +79,6 @@ export function Staff() {
     setPhotoFile(null);
     setPhotoPreviewUrl(null);
     setFormData({
-      memberId: '',
       full_name: '',
       position: 'Senior pastor',
       department: '',
@@ -121,6 +87,7 @@ export function Staff() {
       phone: '',
       bio: '',
     });
+    setEditingStaff(null);
   };
 
   useEffect(() => {
@@ -131,16 +98,46 @@ export function Staff() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManageStaff]);
 
-  useEffect(() => {
-    if (isAddOpen && members.length === 0 && !membersLoading) {
-      fetchMembersForStaffModal();
+  const openAddModal = () => {
+    setEditingStaff(null);
+    resetForm();
+    setIsAddOpen(true);
+  };
+
+  const openEditModal = (staffMember: StaffMember) => {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    setPhotoFile(null);
+    setPhotoPreviewUrl(null);
+    setEditingStaff(staffMember);
+    setFormData({
+      full_name: staffMember.full_name ?? '',
+      position: staffMember.position,
+      department: staffMember.department ?? '',
+      ministry: staffMember.ministry ?? '',
+      email: staffMember.email ?? '',
+      phone: staffMember.phone ?? '',
+      bio: staffMember.bio ?? '',
+    });
+    setIsAddOpen(true);
+  };
+
+  const handleDeleteStaff = async (staffMember: StaffMember) => {
+    if (!window.confirm(`Are you sure you want to delete ${staffMember.full_name}?`)) return;
+    try {
+      const { error } = await supabase
+        .from('staff_members')
+        .delete()
+        .eq('id', staffMember.id);
+
+      if (error) throw error;
+      await fetchStaff('refresh');
+    } catch (error) {
+      handleDatabaseError(error, OperationType.DELETE, 'staff_members');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAddOpen]);
+  };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.memberId.trim()) return;
     if (!formData.full_name.trim()) return;
     if (!formData.department.trim()) return;
     if (!formData.ministry.trim()) return;
@@ -178,18 +175,32 @@ export function Staff() {
         photo_url: photoUrl,
       };
 
-      const { error: insertError } = await supabase
-        .from('staff_members')
-        .insert([staffData]);
+      if (editingStaff) {
+        const updatePayload = {
+          ...staffData,
+          photo_url: photoFile ? photoUrl : (editingStaff.photo_url ?? null),
+        };
 
-      if (insertError) throw insertError;
+        const { error: updateError } = await supabase
+          .from('staff_members')
+          .update(updatePayload)
+          .eq('id', editingStaff.id);
+
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from('staff_members')
+          .insert([staffData]);
+
+        if (insertError) throw insertError;
+      }
 
       // Refresh list and close modal
       setIsAddOpen(false);
       resetForm();
       await fetchStaff('refresh');
     } catch (error) {
-      handleDatabaseError(error, OperationType.CREATE, 'staff_members');
+      handleDatabaseError(error, editingStaff ? OperationType.UPDATE : OperationType.CREATE, 'staff_members');
     } finally {
       setIsSubmitting(false);
     }
@@ -245,7 +256,7 @@ export function Staff() {
           {canManageStaff && (
             <button
               onClick={() => {
-                setIsAddOpen(true);
+                openAddModal();
               }}
               className="flex items-center justify-center gap-2 px-5 py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-all shadow-lg shadow-primary-100 shrink-0"
             >
@@ -343,11 +354,34 @@ export function Staff() {
                     <span className="text-xs font-semibold text-neutral-500">
                       Joined
                     </span>
-                    <span className="text-xs text-neutral-700">
-                      {member.created_at
-                        ? format(new Date(member.created_at), 'MMM dd, yyyy')
-                        : 'N/A'}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-neutral-700">
+                        {member.created_at
+                          ? format(new Date(member.created_at), 'MMM dd, yyyy')
+                          : 'N/A'}
+                      </span>
+
+                      {canManageStaff && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(member)}
+                            className="p-2 rounded-lg text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100 transition-colors"
+                            aria-label="Edit staff"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStaff(member)}
+                            className="p-2 rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors"
+                            aria-label="Delete staff"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -367,9 +401,11 @@ export function Staff() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
               <div className="space-y-1">
-                <h2 className="text-2xl font-bold text-neutral-900">Add Staff Member</h2>
+                <h2 className="text-2xl font-bold text-neutral-900">
+                  {editingStaff ? 'Edit Staff Member' : 'Add Staff Member'}
+                </h2>
                 <p className="text-sm text-neutral-500">
-                  Create a new church staff profile
+                  {editingStaff ? 'Update staff profile details' : 'Create a new church staff profile'}
                 </p>
               </div>
 
@@ -390,30 +426,14 @@ export function Staff() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-neutral-700">Full name</label>
-                  <select
+                  <input
                     required
-                    disabled={membersLoading}
-                    value={formData.memberId}
-                    onChange={(e) => {
-                      const memberId = e.target.value;
-                      const selected = members.find((m) => m.id === memberId);
-                      setFormData({
-                        ...formData,
-                        memberId,
-                        full_name: selected ? `${selected.first_name} ${selected.last_name}` : '',
-                      });
-                    }}
-                    className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-500 outline-none bg-white"
-                  >
-                    <option value="" disabled>
-                      {membersLoading ? 'Loading members...' : 'Select member...'}
-                    </option>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.first_name} {m.last_name}
-                      </option>
-                    ))}
-                  </select>
+                    type="text"
+                    value={formData.full_name}
+                    onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                    className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-primary-500 outline-none"
+                    placeholder="e.g., Jane Doe"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -551,10 +571,12 @@ export function Staff() {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || membersLoading}
+                  disabled={isSubmitting}
                   className="flex-1 py-3 px-6 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-100 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? 'Adding...' : 'Add staff member'}
+                  {isSubmitting
+                    ? (editingStaff ? 'Saving...' : 'Adding...')
+                    : (editingStaff ? 'Save changes' : 'Add staff member')}
                 </button>
               </div>
             </form>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { Member, Tithe, Attendance, Finance } from '../types';
+import { Member, Tithe, Attendance, Finance, ChurchEvent } from '../types';
 import { 
   Users, 
   HandCoins, 
@@ -39,6 +39,7 @@ export function Dashboard() {
   const [tithes, setTithes] = useState<Tithe[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [finances, setFinances] = useState<Finance[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<ChurchEvent[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -63,15 +64,22 @@ export function Dashboard() {
       .on('postgres_changes' as any, { event: '*', table: 'finances' }, () => fetchData())
       .subscribe();
 
+    const eventsSubscription = supabase
+      .channel('dashboard-events')
+      .on('postgres_changes' as any, { event: '*', table: 'events' }, () => fetchData())
+      .subscribe();
+
     return () => {
       membersSubscription.unsubscribe();
       tithesSubscription.unsubscribe();
       attendanceSubscription.unsubscribe();
       financesSubscription.unsubscribe();
+      eventsSubscription.unsubscribe();
     };
   }, []);
 
   const fetchData = async () => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
     const [membersRes, tithesRes, attendanceRes, financesRes] = await Promise.all([
       supabase.from('members').select('*'),
       supabase.from('tithes').select('*'),
@@ -79,10 +87,20 @@ export function Dashboard() {
       supabase.from('finances').select('*')
     ]);
 
+    const { data: eventsData } = await supabase
+      .from('events')
+      .select('*')
+      .eq('status', 'Upcoming')
+      .gte('date', todayStr)
+      .order('date', { ascending: true })
+      .order('time', { ascending: true })
+      .limit(5);
+
     if (membersRes.data) setMembers(membersRes.data);
     if (tithesRes.data) setTithes(tithesRes.data);
     if (attendanceRes.data) setAttendance(attendanceRes.data);
     if (financesRes.data) setFinances(financesRes.data);
+    setUpcomingEvents((eventsData ?? []) as ChurchEvent[]);
   };
 
   const totalMembers = members.length;
@@ -250,6 +268,51 @@ export function Dashboard() {
           </div>
         </div>
 
+        <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 overflow-hidden">
+          <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-neutral-900 flex items-center gap-2">
+              <CalendarPlus size={20} className="text-primary-600" />
+              Upcoming Events
+            </h3>
+            <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Next</span>
+          </div>
+          <div className="p-6">
+            {upcomingEvents.length > 0 ? (
+              <div className="space-y-4">
+                {upcomingEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="flex items-start justify-between gap-4 p-3 rounded-xl bg-neutral-50 hover:bg-neutral-100 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold text-neutral-900 truncate">{event.title}</div>
+                      <div className="text-xs text-neutral-500 truncate">
+                        {event.location || 'No location'}
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500">
+                        {event.category || 'Other'}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-sm font-bold text-neutral-900">
+                        {format(new Date(event.date), 'MMM dd')}
+                      </div>
+                      <div className="text-xs text-neutral-500">
+                        {event.time}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-10 text-neutral-400">
+                <CalendarPlus size={40} className="text-neutral-100 mb-2" />
+                <p>No upcoming events.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Finances Chart */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100">
           <h3 className="text-lg font-bold text-neutral-900 mb-6">Income vs Expenses</h3>
@@ -289,7 +352,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Recent Members */}
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 overflow-hidden">
           <div className="p-6 border-b border-neutral-100 flex items-center justify-between">

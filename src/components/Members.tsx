@@ -591,6 +591,10 @@ export function Members() {
     return matchesSearch && matchesStatus && matchesGroup && matchesMinistry && matchesDepartment;
   });
 
+  const sortedMembers = [...filteredMembers].sort((a, b) =>
+    (a.first_name || '').localeCompare((b.first_name || ''), undefined, { sensitivity: 'base' })
+  );
+
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -822,7 +826,7 @@ export function Members() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {filteredMembers.map((member) => (
+              {sortedMembers.map((member) => (
                 <tr key={member.id} className="hover:bg-neutral-50 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">

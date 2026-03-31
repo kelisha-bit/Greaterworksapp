@@ -34,6 +34,18 @@ export default defineConfig(({mode}) => {
             },
           ],
         },
+        workbox: {
+          // Don't precache API calls
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/.*\.supabase\.co\/.*/,
+              handler: 'NetworkOnly',
+            },
+          ],
+          // Allow all navigation to fall back to index.html for SPA routing
+          navigateFallback: '/index.html',
+          navigateFallbackAllowlist: [/^\/(?!api\/)/],
+        },
       }),
     ],
     define: {

@@ -91,7 +91,42 @@ CREATE TABLE IF NOT EXISTS public.members (
 
 ALTER TABLE public.members ENABLE ROW LEVEL SECURITY;
 
--- 4. Tithes
+-- 4. Services
+CREATE TABLE IF NOT EXISTS public.services (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+
+-- Insert default services
+INSERT INTO public.services (name, description) VALUES
+  ('Sunday Service', 'Main worship service on Sundays'),
+  ('Mid-week Service', 'Mid-week prayer and worship service'),
+  ('Youth Meeting', 'Youth group meetings and activities'),
+  ('Special Event', 'Special church events and programs')
+ON CONFLICT (name) DO NOTHING;
+
+-- RLS Policies for services
+DROP POLICY IF EXISTS "Services are viewable by authenticated users" ON public.services;
+CREATE POLICY "Services are viewable by authenticated users" ON public.services FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Services are insertable by authenticated users" ON public.services;
+CREATE POLICY "Services are insertable by authenticated users" ON public.services FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Services are updatable by authenticated users" ON public.services;
+CREATE POLICY "Services are updatable by authenticated users" ON public.services FOR UPDATE USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Services are deletable by admins" ON public.services;
+CREATE POLICY "Services are deletable by admins" ON public.services FOR DELETE USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+  )
+);
+
+-- 5. Tithes
 CREATE TABLE IF NOT EXISTS public.tithes (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   member_id UUID REFERENCES public.members(id) ON DELETE CASCADE,
@@ -106,11 +141,11 @@ CREATE TABLE IF NOT EXISTS public.tithes (
 
 ALTER TABLE public.tithes ENABLE ROW LEVEL SECURITY;
 
--- 5. Attendance
+-- 6. Attendance
 CREATE TABLE IF NOT EXISTS public.attendance (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   date DATE NOT NULL,
-  service_type TEXT CHECK (service_type IN ('Sunday Service', 'Mid-week Service', 'Youth Meeting', 'Special Event')),
+  service_id UUID REFERENCES public.services(id) ON DELETE CASCADE,
   total_count INTEGER NOT NULL CHECK (total_count >= 0),
   male_count INTEGER DEFAULT 0,
   female_count INTEGER DEFAULT 0,
@@ -122,7 +157,7 @@ CREATE TABLE IF NOT EXISTS public.attendance (
 
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 
--- 6. Finance Categories
+-- 7. Finance Categories
 CREATE TABLE IF NOT EXISTS public.finance_categories (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -132,7 +167,7 @@ CREATE TABLE IF NOT EXISTS public.finance_categories (
 
 ALTER TABLE public.finance_categories ENABLE ROW LEVEL SECURITY;
 
--- 7. Finances
+-- 8. Finances
 CREATE TABLE IF NOT EXISTS public.finances (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   type TEXT CHECK (type IN ('Income', 'Expense')) NOT NULL,
@@ -147,7 +182,7 @@ CREATE TABLE IF NOT EXISTS public.finances (
 
 ALTER TABLE public.finances ENABLE ROW LEVEL SECURITY;
 
--- 8. Church Events
+-- 9. Church Events
 CREATE TABLE IF NOT EXISTS public.events (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   title TEXT NOT NULL,
@@ -295,7 +330,7 @@ CREATE TRIGGER update_finances_updated_at BEFORE UPDATE ON public.finances FOR E
 DROP TRIGGER IF EXISTS update_staff_members_updated_at ON public.staff_members;
 CREATE TRIGGER update_staff_members_updated_at BEFORE UPDATE ON public.staff_members FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
--- 9. Storage for Member Photos
+-- 13. Storage for Member Photos
 -- Create a bucket for member photos if it doesn't exist
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('member-photos', 'member-photos', true)

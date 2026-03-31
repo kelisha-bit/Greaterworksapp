@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
-import type { Attendance as AttendanceType } from '../types';
+import type { Attendance as AttendanceType, Service, Member, MemberAttendance } from '../types';
 import { OperationType } from '../types';
-import { Plus, Edit2, Trash2, X, CalendarCheck, Users, Baby, Search, Filter, TrendingUp, BarChart as BarChartIcon } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, CalendarCheck, Users, Baby, Search, Filter, TrendingUp, BarChart as BarChartIcon, Settings, UserCheck, UserX, User } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { 
   BarChart, 
@@ -21,8 +21,13 @@ import { handleDatabaseError, useAuth } from '../App';
 export function Attendance() {
   const { user } = useAuth();
   const [attendance, setAttendance] = useState<AttendanceType[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [memberAttendance, setMemberAttendance] = useState<MemberAttendance[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<AttendanceType | null>(null);
+  const [editingService, setEditingService] = useState<Service | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [serviceFilter, setServiceFilter] = useState('All');
   const [dateRange, setDateRange] = useState({
@@ -33,15 +38,27 @@ export function Attendance() {
   // Form state
   const [formData, setFormData] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
-    serviceType: 'Sunday Service' as const,
+    serviceId: '',
     totalCount: 0,
     maleCount: 0,
     femaleCount: 0,
     childrenCount: 0,
   });
 
+  // Service form state
+  const [serviceFormData, setServiceFormData] = useState({
+    name: '',
+    description: '',
+  });
+
+  // Member attendance tracking
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [showMemberTracking, setShowMemberTracking] = useState(false);
+
   useEffect(() => {
     fetchAttendance();
+    fetchServices();
+    fetchMembers();
 
     const subscription = supabase
       .channel('attendance-changes')
@@ -59,22 +76,87 @@ export function Attendance() {
     try {
       const { data, error } = await supabase
         .from('attendance')
-        .select('*')
+        .select('id, date, service_id, total_count, male_count, female_count, children_count, recorded_by, created_at, updated_at')
         .order('date', { ascending: false });
       
       if (error) throw error;
-      setAttendance(data || []);
+      
+      // Fetch services separately and join the data
+      if (data && data.length > 0) {
+        const { data: servicesData } = await supabase
+          .from('services')
+          .select('*');
+        
+        const serviceMap = new Map(servicesData?.map(s => [s.id, s]) || []);
+        const enrichedData = data.map(record => ({
+          ...record,
+          service: serviceMap.get(record.service_id) || null
+        }));
+        setAttendance(enrichedData);
+      } else {
+        setAttendance(data || []);
+      }
     } catch (error) {
       handleDatabaseError(error, OperationType.LIST, 'attendance');
     }
   };
 
+  const fetchServices = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('services')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+      
+      if (error) throw error;
+      setServices(data || []);
+    } catch (error) {
+      handleDatabaseError(error, OperationType.LIST, 'services');
+    }
+  };
+
+  const fetchMembers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('members')
+        .select('*')
+        .eq('status', 'Active')
+        .order('first_name');
+      
+      if (error) throw error;
+      setMembers(data || []);
+    } catch (error) {
+      handleDatabaseError(error, OperationType.LIST, 'members');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate required fields
+    if (!formData.serviceId) {
+      handleDatabaseError(
+        new Error('Please select a service type'),
+        OperationType.CREATE,
+        'attendance'
+      );
+      return;
+    }
+    
+    if (formData.totalCount < 0 || formData.maleCount < 0 || formData.femaleCount < 0 || formData.childrenCount < 0) {
+      handleDatabaseError(
+        new Error('Attendance counts cannot be negative'),
+        OperationType.CREATE,
+        'attendance'
+      );
+      return;
+    }
+    
     try {
       const data = {
         date: formData.date,
-        service_type: formData.serviceType,
+        service_id: formData.serviceId,
         total_count: formData.totalCount,
         male_count: formData.maleCount,
         female_count: formData.femaleCount,
@@ -82,18 +164,45 @@ export function Attendance() {
         recorded_by: user?.id,
       };
 
+      let attendanceId: string;
+
       if (editingRecord) {
         const { error } = await supabase
           .from('attendance')
           .update(data)
           .eq('id', editingRecord.id);
         if (error) throw error;
+        attendanceId = editingRecord.id;
+
+        // Delete existing member attendance records
+        await supabase
+          .from('member_attendance')
+          .delete()
+          .eq('attendance_id', editingRecord.id);
       } else {
-        const { error } = await supabase
+        const { data: newRecord, error } = await supabase
           .from('attendance')
-          .insert([data]);
+          .insert([data])
+          .select()
+          .single();
+        if (error) throw error;
+        attendanceId = newRecord.id;
+      }
+
+      // Insert member attendance records
+      if (selectedMembers.length > 0) {
+        const memberAttendanceData = selectedMembers.map(memberId => ({
+          member_id: memberId,
+          attendance_id: attendanceId,
+          status: 'Present' as const,
+        }));
+
+        const { error } = await supabase
+          .from('member_attendance')
+          .insert(memberAttendanceData);
         if (error) throw error;
       }
+
       closeModal();
     } catch (error) {
       handleDatabaseError(error, editingRecord ? OperationType.UPDATE : OperationType.CREATE, 'attendance');
@@ -113,40 +222,121 @@ export function Attendance() {
     }
   };
 
-  const openModal = (record?: AttendanceType) => {
+  const openModal = async (record?: AttendanceType) => {
     if (record) {
       setEditingRecord(record);
       setFormData({
         date: record.date,
-        serviceType: record.service_type,
+        serviceId: record.service_id,
         totalCount: record.total_count,
         maleCount: record.male_count || 0,
         femaleCount: record.female_count || 0,
         childrenCount: record.children_count || 0,
       });
+
+      // Load member attendance for this record
+      try {
+        const { data, error } = await supabase
+          .from('member_attendance')
+          .select('member_id')
+          .eq('attendance_id', record.id)
+          .eq('status', 'Present');
+
+        if (error) throw error;
+        setSelectedMembers(data?.map(ma => ma.member_id) || []);
+      } catch (error) {
+        console.error('Error loading member attendance:', error);
+        setSelectedMembers([]);
+      }
     } else {
       setEditingRecord(null);
       setFormData({
         date: format(new Date(), 'yyyy-MM-dd'),
-        serviceType: 'Sunday Service',
+        serviceId: services.length > 0 ? services[0].id : '',
         totalCount: 0,
         maleCount: 0,
         femaleCount: 0,
         childrenCount: 0,
       });
+      setSelectedMembers([]);
     }
     setIsModalOpen(true);
+  };
+
+  const handleServiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const data = {
+        name: serviceFormData.name,
+        description: serviceFormData.description,
+      };
+
+      if (editingService) {
+        const { error } = await supabase
+          .from('services')
+          .update(data)
+          .eq('id', editingService.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('services')
+          .insert([data]);
+        if (error) throw error;
+      }
+      closeServiceModal();
+      fetchServices();
+    } catch (error) {
+      handleDatabaseError(error, editingService ? OperationType.UPDATE : OperationType.CREATE, 'services');
+    }
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this service? This will also delete all associated attendance records.')) return;
+    try {
+      const { error } = await supabase
+        .from('services')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      fetchServices();
+    } catch (error) {
+      handleDatabaseError(error, OperationType.DELETE, 'services');
+    }
+  };
+
+  const openServiceModal = (service?: Service) => {
+    if (service) {
+      setEditingService(service);
+      setServiceFormData({
+        name: service.name,
+        description: service.description || '',
+      });
+    } else {
+      setEditingService(null);
+      setServiceFormData({
+        name: '',
+        description: '',
+      });
+    }
+    setIsServiceModalOpen(true);
+  };
+
+  const closeServiceModal = () => {
+    setIsServiceModalOpen(false);
+    setEditingService(null);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingRecord(null);
+    setSelectedMembers([]);
+    setShowMemberTracking(false);
   };
 
   const filteredAttendance = useMemo(() => {
     return attendance.filter(record => {
-      const matchesSearch = record.service_type.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesService = serviceFilter === 'All' || record.service_type === serviceFilter;
+      const matchesSearch = record.service?.name.toLowerCase().includes(searchTerm.toLowerCase()) || false;
+      const matchesService = serviceFilter === 'All' || record.service?.id === serviceFilter;
       const matchesDate = isWithinInterval(parseISO(record.date), {
         start: parseISO(dateRange.start),
         end: parseISO(dateRange.end)
@@ -181,13 +371,22 @@ export function Attendance() {
           <h1 className="text-3xl font-bold text-neutral-900">Attendance</h1>
           <p className="text-neutral-500">Monitor church service attendance trends</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="flex items-center justify-center gap-2 px-6 py-3 bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100"
-        >
-          <Plus size={20} />
-          Record Attendance
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => openServiceModal()}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-neutral-100 text-neutral-700 rounded-xl font-semibold hover:bg-neutral-200 transition-all"
+          >
+            <Settings size={20} />
+            Manage Services
+          </button>
+          <button
+            onClick={() => openModal()}
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100"
+          >
+            <Plus size={20} />
+            Record Attendance
+          </button>
+        </div>
       </div>
 
       {/* Stats Summary */}
@@ -245,10 +444,9 @@ export function Attendance() {
                   onChange={(e) => setServiceFilter(e.target.value)}
                 >
                   <option value="All">All Services</option>
-                  <option value="Sunday Service">Sunday Service</option>
-                  <option value="Mid-week Service">Mid-week Service</option>
-                  <option value="Youth Meeting">Youth Meeting</option>
-                  <option value="Special Event">Special Event</option>
+                  {services.map(service => (
+                    <option key={service.id} value={service.id}>{service.name}</option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -324,7 +522,7 @@ export function Attendance() {
                     {format(new Date(record.date), 'MMM dd, yyyy')}
                   </td>
                   <td className="px-6 py-4">
-                    <div className="font-semibold text-neutral-900">{record.service_type}</div>
+                    <div className="font-semibold text-neutral-900">{record.service?.name || 'Unknown Service'}</div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="font-bold text-amber-600">{record.total_count}</div>
@@ -396,15 +594,23 @@ export function Attendance() {
                   <label className="text-sm font-semibold text-neutral-700">Service Type *</label>
                   <select
                     required
-                    className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
-                    value={formData.serviceType}
-                    onChange={(e) => setFormData({ ...formData, serviceType: e.target.value as any })}
+                    className={cn(
+                      "w-full px-4 py-2 rounded-xl border focus:ring-2 focus:ring-amber-500 outline-none",
+                      !formData.serviceId ? "border-red-300" : "border-neutral-200"
+                    )}
+                    value={formData.serviceId}
+                    onChange={(e) => setFormData({ ...formData, serviceId: e.target.value })}
                   >
-                    <option value="Sunday Service">Sunday Service</option>
-                    <option value="Mid-week Service">Mid-week Service</option>
-                    <option value="Youth Meeting">Youth Meeting</option>
-                    <option value="Special Event">Special Event</option>
+                    <option value="">Select a service</option>
+                    {services.length > 0 ? (
+                      services.map(service => (
+                        <option key={service.id} value={service.id}>{service.name}</option>
+                      ))
+                    ) : (
+                      <option disabled>No services available</option>
+                    )}
                   </select>
+                  {!formData.serviceId && <p className="text-xs text-red-600 mt-1">Service is required</p>}
                 </div>
               </div>
 
@@ -414,38 +620,94 @@ export function Attendance() {
                   <input
                     required
                     type="number"
+                    min="0"
                     className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
                     value={formData.totalCount}
-                    onChange={(e) => setFormData({ ...formData, totalCount: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, totalCount: Math.max(0, parseInt(e.target.value)) })}
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-neutral-700">Children Count</label>
                   <input
                     type="number"
+                    min="0"
                     className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
                     value={formData.childrenCount}
-                    onChange={(e) => setFormData({ ...formData, childrenCount: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, childrenCount: Math.max(0, parseInt(e.target.value)) })}
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-neutral-700">Male Count</label>
                   <input
                     type="number"
+                    min="0"
                     className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
                     value={formData.maleCount}
-                    onChange={(e) => setFormData({ ...formData, maleCount: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, maleCount: Math.max(0, parseInt(e.target.value)) })}
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-neutral-700">Female Count</label>
                   <input
                     type="number"
+                    min="0"
                     className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
                     value={formData.femaleCount}
-                    onChange={(e) => setFormData({ ...formData, femaleCount: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, femaleCount: Math.max(0, parseInt(e.target.value)) })}
                   />
                 </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold text-neutral-700">Track Individual Attendance</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowMemberTracking(!showMemberTracking)}
+                    className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+                  >
+                    {showMemberTracking ? 'Hide' : 'Show'} Member List
+                  </button>
+                </div>
+                
+                {showMemberTracking && (
+                  <div className="max-h-60 overflow-y-auto border border-neutral-200 rounded-xl p-4 bg-neutral-50">
+                    <div className="space-y-2">
+                      {members.map(member => (
+                        <label key={member.id} className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedMembers.includes(member.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedMembers([...selectedMembers, member.id]);
+                              } else {
+                                setSelectedMembers(selectedMembers.filter(id => id !== member.id));
+                              }
+                            }}
+                            className="rounded border-neutral-300 text-amber-600 focus:ring-amber-500"
+                          />
+                          <div className="flex items-center gap-2">
+                            {selectedMembers.includes(member.id) ? (
+                              <UserCheck size={16} className="text-green-600" />
+                            ) : (
+                              <User size={16} className="text-neutral-400" />
+                            )}
+                            <span className="text-sm font-medium">
+                              {member.first_name} {member.last_name}
+                            </span>
+                            <span className="text-xs text-neutral-500">
+                              ({member.gender})
+                            </span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {members.length === 0 && (
+                      <p className="text-sm text-neutral-500 text-center py-4">No active members found</p>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div className="pt-4 flex gap-4">
@@ -464,6 +726,112 @@ export function Attendance() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      
+      {/* Service Management Modal */}
+      {isServiceModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-neutral-900">
+                {editingService ? 'Edit Service' : 'Manage Services'}
+              </h2>
+              <button onClick={closeServiceModal} className="p-2 text-neutral-400 hover:text-neutral-600 rounded-lg">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto">
+              {!editingService ? (
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-semibold text-neutral-900">Available Services</h3>
+                    <button
+                      onClick={() => openServiceModal()}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-colors"
+                    >
+                      <Plus size={16} />
+                      Add Service
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {services.map(service => (
+                      <div key={service.id} className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl">
+                        <div>
+                          <h4 className="font-semibold text-neutral-900">{service.name}</h4>
+                          {service.description && (
+                            <p className="text-sm text-neutral-600">{service.description}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => openServiceModal(service)}
+                            className="p-2 text-neutral-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          {user?.role === 'admin' && (
+                            <button
+                              onClick={() => handleDeleteService(service.id)}
+                              className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {services.length === 0 && (
+                      <p className="text-center text-neutral-500 py-8">No services found</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleServiceSubmit} className="p-6 space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-neutral-700">Service Name *</label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
+                      value={serviceFormData.name}
+                      onChange={(e) => setServiceFormData({ ...serviceFormData, name: e.target.value })}
+                      placeholder="e.g., Sunday Service"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-neutral-700">Description</label>
+                    <textarea
+                      className="w-full px-4 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none resize-none"
+                      rows={3}
+                      value={serviceFormData.description}
+                      onChange={(e) => setServiceFormData({ ...serviceFormData, description: e.target.value })}
+                      placeholder="Optional description of the service"
+                    />
+                  </div>
+                  
+                  <div className="pt-4 flex gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setEditingService(null)}
+                      className="flex-1 py-3 px-6 bg-neutral-100 text-neutral-600 rounded-xl font-semibold hover:bg-neutral-200 transition-colors"
+                    >
+                      Back to List
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 px-6 bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-colors shadow-lg shadow-amber-100"
+                    >
+                      {editingService ? 'Save Changes' : 'Add Service'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       )}

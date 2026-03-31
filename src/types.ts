@@ -87,10 +87,20 @@ export interface Tithe {
   created_at: string;
 }
 
+export interface Service {
+  id: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Attendance {
   id: string;
   date: string;
-  service_type: 'Sunday Service' | 'Mid-week Service' | 'Youth Meeting' | 'Special Event';
+  service_id: string;
+  service?: Service;
   total_count: number;
   male_count?: number;
   female_count?: number;
