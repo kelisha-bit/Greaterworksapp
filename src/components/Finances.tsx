@@ -16,6 +16,7 @@ export function Finances() {
   const [editingCategory, setEditingCategory] = useState<FinanceCategory | null>(null);
   const [filterType, setFilterType] = useState<string>('All');
   const [timeFilter, setTimeFilter] = useState<string>('All');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
   // Category Form state
   const [categoryFormData, setCategoryFormData] = useState({
@@ -220,6 +221,9 @@ export function Finances() {
     const matchesType = filterType === 'All' || f.type === filterType;
     if (!matchesType) return false;
 
+    if (dateRange.start && f.date < dateRange.start) return false;
+    if (dateRange.end && f.date > dateRange.end) return false;
+
     if (timeFilter === 'All') return true;
     
     const recordDate = new Date(f.date);
@@ -334,6 +338,50 @@ export function Finances() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="h-px md:h-8 w-full md:w-px bg-neutral-100" />
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">From</span>
+            <input
+              type="date"
+              className="px-3 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+              value={dateRange.start}
+              onChange={(e) => {
+                const start = e.target.value;
+                setDateRange((prev) => {
+                  const end = prev.end && start && prev.end < start ? start : prev.end;
+                  return { ...prev, start, end };
+                });
+              }}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">To</span>
+            <input
+              type="date"
+              className="px-3 py-2 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+              value={dateRange.end}
+              min={dateRange.start || undefined}
+              onChange={(e) => {
+                const end = e.target.value;
+                setDateRange((prev) => ({ ...prev, end }));
+              }}
+            />
+          </div>
+
+          {(dateRange.start || dateRange.end) && (
+            <button
+              type="button"
+              onClick={() => setDateRange({ start: '', end: '' })}
+              className="px-3 py-2 rounded-xl text-sm font-medium bg-neutral-50 text-neutral-500 hover:bg-neutral-100 transition-all"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
