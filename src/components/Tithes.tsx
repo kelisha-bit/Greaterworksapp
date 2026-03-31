@@ -34,14 +34,14 @@ export function Tithes() {
 
     const tithesSubscription = supabase
       .channel('tithes-changes')
-      .on('postgres_changes' as any, { event: '*', table: 'tithes' }, () => {
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'tithes' }, () => {
         fetchTithes();
       })
       .subscribe();
 
     const membersSubscription = supabase
       .channel('members-changes')
-      .on('postgres_changes' as any, { event: '*', table: 'members' }, () => {
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'members' }, () => {
         fetchMembers();
       })
       .subscribe();
@@ -106,6 +106,7 @@ export function Tithes() {
           .insert([data]);
         if (error) throw error;
       }
+      await fetchTithes();
       closeModal();
     } catch (error) {
       handleDatabaseError(error, editingTithe ? OperationType.UPDATE : OperationType.CREATE, 'tithes');
@@ -120,6 +121,7 @@ export function Tithes() {
         .delete()
         .eq('id', id);
       if (error) throw error;
+      await fetchTithes();
     } catch (error) {
       handleDatabaseError(error, OperationType.DELETE, 'tithes');
     }
@@ -149,6 +151,41 @@ export function Tithes() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingTithe(null);
+  };
+
+  const exportToCsv = () => {
+    const escapeCsv = (value: unknown) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      if (/[\n\r,\"]/g.test(str)) return `"${str.replace(/"/g, '""')}"`;
+      return str;
+    };
+
+    const header = ['Member', 'Amount', 'Date', 'Payment Method'];
+    const rows = filteredTithes.map(t => [
+      t.member_name,
+      t.amount,
+      t.date,
+      t.payment_method,
+    ]);
+
+    const csv = [header, ...rows]
+      .map(row => row.map(escapeCsv).join(','))
+      .join('\n');
+
+    const start = startDate || 'all';
+    const end = endDate || 'all';
+    const fileName = `tithes_${start}_to_${end}.csv`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const filteredTithes = tithes.filter(t => {
@@ -267,7 +304,16 @@ export function Tithes() {
                 </button>
               )}
             </div>
-            <button className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-600 rounded-xl hover:bg-neutral-200 transition-colors ml-auto">
+            <button
+              onClick={exportToCsv}
+              disabled={filteredTithes.length === 0}
+              className={cn(
+                "flex items-center justify-center gap-2 px-4 py-2 rounded-xl transition-colors ml-auto",
+                filteredTithes.length === 0
+                  ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              )}
+            >
               <Download size={18} />
               Export
             </button>

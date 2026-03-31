@@ -40,7 +40,7 @@ export function Events() {
 
     const subscription = supabase
       .channel('events-changes')
-      .on('postgres_changes' as any, { event: '*', table: 'events' }, () => {
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'events' }, () => {
         fetchEvents();
       })
       .subscribe();
@@ -95,6 +95,7 @@ export function Events() {
         if (error) throw error;
         toast.success('Event created successfully');
       }
+      await fetchEvents();
       closeModal();
     } catch (error) {
       handleDatabaseError(error, editingEvent ? OperationType.UPDATE : OperationType.CREATE, 'events');
@@ -110,6 +111,7 @@ export function Events() {
         .eq('id', eventToDelete);
       if (error) throw error;
       toast.success('Event deleted successfully');
+      await fetchEvents();
       setIsDeleteModalOpen(false);
       setEventToDelete(null);
     } catch (error) {

@@ -62,7 +62,7 @@ export function Attendance() {
 
     const subscription = supabase
       .channel('attendance-changes')
-      .on('postgres_changes' as any, { event: '*', table: 'attendance' }, () => {
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'attendance' }, () => {
         fetchAttendance();
       })
       .subscribe();
@@ -192,9 +192,10 @@ export function Attendance() {
       // Insert member attendance records
       if (selectedMembers.length > 0) {
         const memberAttendanceData = selectedMembers.map(memberId => ({
-          member_id: memberId,
           attendance_id: attendanceId,
+          member_id: memberId,
           status: 'Present' as const,
+          recorded_by: user?.id,
         }));
 
         const { error } = await supabase
@@ -203,6 +204,7 @@ export function Attendance() {
         if (error) throw error;
       }
 
+      await fetchAttendance();
       closeModal();
     } catch (error) {
       handleDatabaseError(error, editingRecord ? OperationType.UPDATE : OperationType.CREATE, 'attendance');
@@ -217,6 +219,7 @@ export function Attendance() {
         .delete()
         .eq('id', id);
       if (error) throw error;
+      await fetchAttendance();
     } catch (error) {
       handleDatabaseError(error, OperationType.DELETE, 'attendance');
     }
@@ -283,8 +286,9 @@ export function Attendance() {
           .insert([data]);
         if (error) throw error;
       }
+
+      await fetchServices();
       closeServiceModal();
-      fetchServices();
     } catch (error) {
       handleDatabaseError(error, editingService ? OperationType.UPDATE : OperationType.CREATE, 'services');
     }

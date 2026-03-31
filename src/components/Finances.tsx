@@ -39,14 +39,14 @@ export function Finances() {
 
     const financesSubscription = supabase
       .channel('finances-changes')
-      .on('postgres_changes' as any, { event: '*', table: 'finances' }, () => {
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'finances' }, () => {
         fetchFinances();
       })
       .subscribe();
 
     const categoriesSubscription = supabase
       .channel('categories-changes')
-      .on('postgres_changes' as any, { event: '*', table: 'finance_categories' }, () => {
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'finance_categories' }, () => {
         fetchCategories();
       })
       .subscribe();
@@ -109,6 +109,7 @@ export function Finances() {
           .insert([data]);
         if (error) throw error;
       }
+      await fetchFinances();
       closeModal();
     } catch (error) {
       handleDatabaseError(error, editingRecord ? OperationType.UPDATE : OperationType.CREATE, 'finances');
@@ -123,6 +124,7 @@ export function Finances() {
         .delete()
         .eq('id', id);
       if (error) throw error;
+      await fetchFinances();
     } catch (error) {
       handleDatabaseError(error, OperationType.DELETE, 'finances');
     }
