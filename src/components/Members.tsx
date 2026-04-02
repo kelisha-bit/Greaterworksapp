@@ -591,6 +591,15 @@ export function Members() {
     return matchesSearch && matchesStatus && matchesGroup && matchesMinistry && matchesDepartment;
   });
 
+  const activeFilteredMembers = filteredMembers.filter(m => m.status === 'Active').length;
+  const inactiveFilteredMembers = filteredMembers.filter(m => m.status === 'Inactive').length;
+  const newThisMonthFiltered = filteredMembers.filter(m => {
+    const joinDate = new Date(m.date_joined);
+    const monthStart = startOfMonth(new Date());
+    const monthEnd = endOfMonth(new Date());
+    return isWithinInterval(joinDate, { start: monthStart, end: monthEnd });
+  }).length;
+
   const sortedMembers = [...filteredMembers].sort((a, b) =>
     (a.first_name || '').localeCompare((b.first_name || ''), undefined, { sensitivity: 'base' })
   );
@@ -749,6 +758,61 @@ export function Members() {
             <UserPlus size={20} />
             Add Member
           </button>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-blue-500 p-3 rounded-xl text-white">
+              <Users size={24} />
+            </div>
+            <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Total</span>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-neutral-900">{filteredMembers.length}</div>
+            <div className="text-sm text-neutral-500 mt-1">Members</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-emerald-500 p-3 rounded-xl text-white">
+              <Activity size={24} />
+            </div>
+            <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Active</span>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-neutral-900">{activeFilteredMembers}</div>
+            <div className="text-sm text-neutral-500 mt-1">Active Members</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-amber-500 p-3 rounded-xl text-white">
+              <UserPlus size={24} />
+            </div>
+            <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">New</span>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-neutral-900">{newThisMonthFiltered}</div>
+            <div className="text-sm text-neutral-500 mt-1">This Month</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-red-500 p-3 rounded-xl text-white">
+              <Users2 size={24} />
+            </div>
+            <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Inactive</span>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-neutral-900">{inactiveFilteredMembers}</div>
+            <div className="text-sm text-neutral-500 mt-1">Inactive Members</div>
+          </div>
         </div>
       </div>
 
