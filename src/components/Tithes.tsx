@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { Tithe, Member, OperationType } from '../types';
-import { Plus, Search, Edit2, Trash2, X, HandCoins, Filter, Download, Users } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, HandCoins, Filter, Download, Users, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../lib/utils';
 import { handleDatabaseError, useAuth } from '../App';
@@ -188,6 +188,114 @@ export function Tithes() {
     URL.revokeObjectURL(url);
   };
 
+  const printReceipt = (tithe: Tithe) => {
+    const receiptHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Tithe Receipt</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 20px;
+              text-align: center;
+            }
+            .receipt {
+              max-width: 400px;
+              margin: 0 auto;
+              border: 1px solid #ccc;
+              padding: 20px;
+              background: white;
+            }
+            .header {
+              border-bottom: 2px solid #000;
+              padding-bottom: 10px;
+              margin-bottom: 20px;
+            }
+            .church-name {
+              font-size: 24px;
+              font-weight: bold;
+              margin-bottom: 5px;
+            }
+            .receipt-title {
+              font-size: 18px;
+              margin-bottom: 20px;
+            }
+            .details {
+              text-align: left;
+              margin-bottom: 20px;
+            }
+            .detail-row {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 10px;
+            }
+            .amount {
+              font-size: 20px;
+              font-weight: bold;
+              color: #059669;
+            }
+            .footer {
+              border-top: 1px solid #ccc;
+              padding-top: 10px;
+              font-size: 12px;
+              color: #666;
+            }
+            @media print {
+              body { margin: 0; }
+              .receipt { border: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="receipt">
+            <div class="header">
+              <div class="church-name">Greater Works City Church</div>
+              <div>Accra, Ghana</div>
+            </div>
+            <div class="receipt-title">Tithe Receipt</div>
+            <div class="details">
+              <div class="detail-row">
+                <span>Receipt No:</span>
+                <span>${tithe.id.slice(0, 8).toUpperCase()}</span>
+              </div>
+              <div class="detail-row">
+                <span>Member:</span>
+                <span>${tithe.member_name}</span>
+              </div>
+              <div class="detail-row">
+                <span>Amount:</span>
+                <span class="amount">GH₵ ${tithe.amount.toLocaleString()}</span>
+              </div>
+              <div class="detail-row">
+                <span>Date:</span>
+                <span>${format(new Date(tithe.date), 'MMMM dd, yyyy')}</span>
+              </div>
+              <div class="detail-row">
+                <span>Payment Method:</span>
+                <span>${tithe.payment_method}</span>
+              </div>
+            </div>
+            <div class="footer">
+              Thank you for your generous contribution.<br>
+              "Bring the whole tithe into the storehouse..." - Malachi 3:10
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(receiptHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    }
+  };
+
   const filteredTithes = tithes.filter(t => {
     const matchesSearch = t.member_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          t.payment_method.toLowerCase().includes(searchTerm.toLowerCase());
@@ -359,6 +467,13 @@ export function Tithes() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => printReceipt(tithe)}
+                        className="p-2 text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Print Receipt"
+                      >
+                        <Printer size={18} />
+                      </button>
                       <button 
                         onClick={() => openModal(tithe)}
                         className="p-2 text-neutral-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
