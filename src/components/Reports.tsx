@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
-import { Finance, Tithe, OperationType, Attendance } from '../types';
+import { Finance, Tithe, OperationType, Attendance, Member } from '../types';
 import { 
   FileText, 
   Download, 
@@ -41,6 +41,7 @@ export function Reports() {
   const [finances, setFinances] = useState<Finance[]>([]);
   const [tithes, setTithes] = useState<Tithe[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [dateRange, setDateRange] = useState({
     start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     end: format(endOfMonth(new Date()), 'yyyy-MM-dd'),
@@ -66,28 +67,37 @@ export function Reports() {
       .on('postgres_changes' as any, { event: '*', table: 'attendance' }, () => fetchData())
       .subscribe();
 
+    const membersSubscription = supabase
+      .channel('reports-members')
+      .on('postgres_changes' as any, { event: '*', table: 'members' }, () => fetchData())
+      .subscribe();
+
     return () => {
       financesSubscription.unsubscribe();
       tithesSubscription.unsubscribe();
       attendanceSubscription.unsubscribe();
+      membersSubscription.unsubscribe();
     };
   }, []);
 
   const fetchData = async () => {
     try {
-      const [financesRes, tithesRes, attendanceRes] = await Promise.all([
+      const [financesRes, tithesRes, attendanceRes, membersRes] = await Promise.all([
         supabase.from('finances').select('*').order('date', { ascending: false }),
         supabase.from('tithes').select('*'),
-        supabase.from('attendance').select('*').order('date', { ascending: true })
+        supabase.from('attendance').select('*').order('date', { ascending: true }),
+        supabase.from('members').select('*').order('date_joined', { ascending: false })
       ]);
 
       if (financesRes.error) throw financesRes.error;
       if (tithesRes.error) throw tithesRes.error;
       if (attendanceRes.error) throw attendanceRes.error;
+      if (membersRes.error) throw membersRes.error;
 
       setFinances(financesRes.data || []);
       setTithes(tithesRes.data || []);
       setAttendance(attendanceRes.data || []);
+      setMembers(membersRes.data || []);
     } catch (error) {
       handleDatabaseError(error, OperationType.LIST, 'reports');
     }
@@ -223,6 +233,49 @@ export function Reports() {
     return Object.entries(types).map(([name, value]) => ({ name, value }));
   }, [filteredData]);
 
+  const memberDemographicsData = useMemo(() => {
+    const genderCounts: { [key: string]: number } = {};
+    const maritalStatusCounts: { [key: string]: number } = {};
+    const ageGroups: { [key: string]: number } = { '0-17': 0, '18-30': 0, '31-50': 0, '51-70': 0, '71+': 0 };
+    const statusCounts: { [key: string]: number } = {};
+
+    members.forEach(member => {
+      // Gender distribution
+      if (member.gender) {
+        genderCounts[member.gender] = (genderCounts[member.gender] || 0) + 1;
+      }
+
+      // Marital status distribution
+      if (member.marital_status) {
+        maritalStatusCounts[member.marital_status] = (maritalStatusCounts[member.marital_status] || 0) + 1;
+      }
+
+      // Age groups
+      if (member.birthday) {
+        const birthDate = new Date(member.birthday);
+        const age = new Date().getFullYear() - birthDate.getFullYear();
+        
+        if (age <= 17) ageGroups['0-17']++;
+        else if (age <= 30) ageGroups['18-30']++;
+        else if (age <= 50) ageGroups['31-50']++;
+        else if (age <= 70) ageGroups['51-70']++;
+        else ageGroups['71+']++;
+      }
+
+      // Status distribution
+      if (member.status) {
+        statusCounts[member.status] = (statusCounts[member.status] || 0) + 1;
+      }
+    });
+
+    return {
+      gender: Object.entries(genderCounts).map(([name, value]) => ({ name, value })),
+      maritalStatus: Object.entries(maritalStatusCounts).map(([name, value]) => ({ name, value })),
+      ageGroups: Object.entries(ageGroups).map(([name, value]) => ({ name, value })).filter(item => item.value > 0),
+      status: Object.entries(statusCounts).map(([name, value]) => ({ name, value }))
+    };
+  }, [members]);
+
   const incomeVsExpenseData = useMemo(() => {
     return [
       { name: 'Income', value: stats.totalIncome, color: '#10b981' },
@@ -257,8 +310,8 @@ export function Reports() {
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Financial Reports</h1>
-          <p className="text-neutral-500">Generate and export detailed financial insights</p>
+          <h1 className="text-3xl font-bold text-neutral-900">Reports & Analytics</h1>
+          <p className="text-neutral-500">Generate detailed financial, attendance, and member demographic insights</p>
         </div>
         <button
           onClick={exportToCSV}
@@ -519,6 +572,107 @@ export function Reports() {
           </div>
         </div>
 
+        {/* Member Gender Distribution Pie Chart */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100">
+          <div className="flex items-center gap-2 mb-6">
+            <Users size={20} className="text-pink-500" />
+            <h3 className="text-lg font-bold text-neutral-900">Member Gender Distribution</h3>
+          </div>
+          <div className="h-[350px]">
+            {memberDemographicsData.gender.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={memberDemographicsData.gender}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {memberDemographicsData.gender.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-neutral-400">
+                No gender data available
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Member Age Groups Bar Chart */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100">
+          <div className="flex items-center gap-2 mb-6">
+            <BarChartIcon size={20} className="text-orange-500" />
+            <h3 className="text-lg font-bold text-neutral-900">Member Age Groups</h3>
+          </div>
+          <div className="h-[350px]">
+            {memberDemographicsData.ageGroups.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={memberDemographicsData.ageGroups}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12}} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12}} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Bar dataKey="value" fill="#f59e0b" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-neutral-400">
+                No age data available
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Member Marital Status Pie Chart */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100">
+          <div className="flex items-center gap-2 mb-6">
+            <Users size={20} className="text-green-500" />
+            <h3 className="text-lg font-bold text-neutral-900">Marital Status Distribution</h3>
+          </div>
+          <div className="h-[350px]">
+            {memberDemographicsData.maritalStatus.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={memberDemographicsData.maritalStatus}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {memberDemographicsData.maritalStatus.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-neutral-400">
+                No marital status data available
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Attendance Trend Line Chart */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 lg:col-span-2">
           <div className="flex items-center gap-2 mb-6">
@@ -582,9 +736,9 @@ export function Reports() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
         {/* Top Income Categories Table */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 lg:col-span-1">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 md:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-2 mb-6">
             <TrendingUp size={20} className="text-emerald-500" />
             <h3 className="text-lg font-bold text-neutral-900">Top Income Sources</h3>
@@ -606,7 +760,7 @@ export function Reports() {
         </div>
 
         {/* Top Expense Categories Table */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 lg:col-span-1">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 md:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-2 mb-6">
             <TrendingDown size={20} className="text-red-500" />
             <h3 className="text-lg font-bold text-neutral-900">Top Expense Categories</h3>
@@ -628,7 +782,7 @@ export function Reports() {
         </div>
 
         {/* Attendance Summary Table */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 lg:col-span-1">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 md:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-2 mb-6">
             <Users size={20} className="text-purple-500" />
             <h3 className="text-lg font-bold text-neutral-900">Attendance Summary</h3>
@@ -648,56 +802,115 @@ export function Reports() {
             )}
           </div>
         </div>
+
+        {/* Member Demographics Summary */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 md:col-span-2 lg:col-span-1">
+          <div className="flex items-center gap-2 mb-6">
+            <Users size={20} className="text-pink-500" />
+            <h3 className="text-lg font-bold text-neutral-900">Gender Distribution</h3>
+          </div>
+          <div className="space-y-4">
+            {memberDemographicsData.gender.map((item, index) => (
+              <div key={item.name} className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                  <span className="text-sm font-medium text-neutral-700">{item.name}</span>
+                </div>
+                <span className="text-sm font-bold text-neutral-900">{item.value.toLocaleString()}</span>
+              </div>
+            ))}
+            {memberDemographicsData.gender.length === 0 && (
+              <p className="text-sm text-neutral-400 text-center py-4">No gender data</p>
+            )}
+          </div>
+        </div>
+
+        {/* Member Status Summary */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 md:col-span-2 lg:col-span-1">
+          <div className="flex items-center gap-2 mb-6">
+            <Users size={20} className="text-green-500" />
+            <h3 className="text-lg font-bold text-neutral-900">Member Status</h3>
+          </div>
+          <div className="space-y-4">
+            {memberDemographicsData.status.map((item, index) => (
+              <div key={item.name} className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                  <span className="text-sm font-medium text-neutral-700">{item.name}</span>
+                </div>
+                <span className="text-sm font-bold text-neutral-900">{item.value.toLocaleString()}</span>
+              </div>
+            ))}
+            {memberDemographicsData.status.length === 0 && (
+              <p className="text-sm text-neutral-400 text-center py-4">No status data</p>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Detailed Attendance List */}
+      {/* Member Demographics Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 overflow-hidden">
         <div className="p-6 border-b border-neutral-100">
-          <h3 className="text-lg font-bold text-neutral-900">Attendance Records</h3>
+          <h3 className="text-lg font-bold text-neutral-900">Member Demographics</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-neutral-50 text-neutral-500 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">Date</th>
-                <th className="px-6 py-4 font-semibold">Service Type</th>
-                <th className="px-6 py-4 font-semibold text-center">Men</th>
-                <th className="px-6 py-4 font-semibold text-center">Women</th>
-                <th className="px-6 py-4 font-semibold text-center">Children</th>
-                <th className="px-6 py-4 font-semibold text-right">Total</th>
+                <th className="px-6 py-4 font-semibold">Name</th>
+                <th className="px-6 py-4 font-semibold">Gender</th>
+                <th className="px-6 py-4 font-semibold">Age</th>
+                <th className="px-6 py-4 font-semibold">Marital Status</th>
+                <th className="px-6 py-4 font-semibold">Status</th>
+                <th className="px-6 py-4 font-semibold">Date Joined</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {filteredData.attendance.sort((a, b) => b.date.localeCompare(a.date)).map((item) => (
-                <tr key={item.id} className="hover:bg-neutral-50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-neutral-600">
-                    {format(parseISO(item.date), 'MMM dd, yyyy')}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700">
-                      {item.service_type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-neutral-600">
-                    {item.male_count || 0}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-neutral-600">
-                    {item.female_count || 0}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-neutral-600">
-                    {item.children_count || 0}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="font-bold text-neutral-900">
-                      {item.total_count.toLocaleString()}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredData.attendance.length === 0 && (
+              {members.slice(0, 20).map((member) => {
+                const age = member.birthday ? new Date().getFullYear() - new Date(member.birthday).getFullYear() : null;
+                return (
+                  <tr key={member.id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-medium text-neutral-900">
+                      {member.first_name} {member.last_name}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                        member.gender === 'Male' ? 'bg-blue-100 text-blue-700' :
+                        member.gender === 'Female' ? 'bg-pink-100 text-pink-700' :
+                        'bg-gray-100 text-gray-700'
+                      )}>
+                        {member.gender || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-neutral-600">
+                      {age ? `${age} years` : 'N/A'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-green-100 text-green-700">
+                        {member.marital_status || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                        member.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
+                        member.status === 'Inactive' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      )}>
+                        {member.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-neutral-600">
+                      {member.date_joined ? format(parseISO(member.date_joined), 'MMM dd, yyyy') : 'N/A'}
+                    </td>
+                  </tr>
+                );
+              })}
+              {members.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-neutral-400">
-                    No attendance records found for the selected period.
+                    No member records found.
                   </td>
                 </tr>
               )}
